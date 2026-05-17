@@ -81,9 +81,7 @@ vim.cmd("source " .. path .. "/plugin/garrys.lua")
 vim.g.mapleader      = " "
 vim.g.maplocalleader = "\\"
 
-require("garrys").setup({
-  { import = "plugins" },
-})
+require("garrys").setup({})
 ```
 
 Open Neovim. garrys.nvim bootstraps itself, then installs your plugins automatically.
