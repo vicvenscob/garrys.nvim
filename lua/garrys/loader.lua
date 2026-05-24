@@ -97,13 +97,30 @@ function M.register(plugin)
 
   -- Lazy by event
   if plugin.event then
-    local events = type(plugin.event) == "string" and { plugin.event } or plugin.event
-    local valid  = {}
+    local events    = type(plugin.event) == "string" and { plugin.event } or plugin.event
+    local valid     = {}
+    local very_lazy = false
+
     for _, ev in ipairs(events) do
-      local ok = pcall(vim.api.nvim_create_autocmd, ev, { once = true, callback = function() end })
-      if ok then table.insert(valid, ev)
-      else u.warn("unknown event '" .. ev .. "' for " .. plugin.name) end
+      if ev == "VeryLazy" then
+        -- Synthetic event (lazy.nvim compat) — fires after UI is ready
+        very_lazy = true
+      else
+        local ok = pcall(vim.api.nvim_create_autocmd, ev, { once = true, callback = function() end })
+        if ok then table.insert(valid, ev)
+        else u.warn("unknown event '" .. ev .. "' for " .. plugin.name) end
+      end
     end
+
+    if very_lazy then
+      vim.api.nvim_create_autocmd("UIEnter", {
+        once     = true,
+        callback = function()
+          vim.defer_fn(load_once, 100)
+        end,
+      })
+    end
+
     if #valid > 0 then
       vim.api.nvim_create_autocmd(valid, { once = true, callback = load_once })
     end
