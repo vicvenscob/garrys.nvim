@@ -21,6 +21,23 @@ function M.inject(plugin)
   -- Always check disk first — never run config on uninstalled plugin
   if not u.is_installed(plugin.path) then return end
 
+  -- Inject dependencies first
+  if plugin.dep and #plugin.dep > 0 then
+    local ok, garrys = pcall(require, "garrys")
+    if ok then
+      for _, dep in ipairs(plugin.dep) do
+        local dep_name   = dep:match("[^/]+$")
+        local dep_plugin = garrys._plugins[dep_name]
+        if dep_plugin and not dep_plugin._loaded then
+          M.inject(dep_plugin)
+        end
+      end
+    end
+  end
+
+  -- Already loaded by a dep chain — skip
+  if plugin._loaded then return end
+
   -- Run init before load (lazy.nvim compat)
   if plugin.init then
     local ok, err = pcall(plugin.init)
