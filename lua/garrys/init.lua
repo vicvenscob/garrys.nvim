@@ -453,13 +453,24 @@ function M._autoinstall(plugins)
             local plugin = missing[i]; i = i + 1; active = active + 1
             _ui.set_status(plugin.name, "installing...")
 
-            clone_plugin(plugin, function(clone_ok, clone_err)
+            -- Only `active` is adjusted here; `done` and the finish()/dispatch()
+            -- decision are made once per plugin, in `settle()`, after the retry
+            -- (if any) has actually resolved — not on the first attempt.
+            local settled = false
+            local function settle()
+              if settled then return end
+              settled = true
               active = active - 1; done = done + 1
+              if done == #missing then _ui.finish() else dispatch() end
+            end
+
+            clone_plugin(plugin, function(clone_ok, clone_err)
               vim.schedule(function()
                 if clone_ok then
                   _ui.set_status(plugin.name, "✔ installed")
                   pcall(loader.inject, plugin)
                   if plugin.make then pcall(u.run_build, plugin) end
+                  settle()
                 else
                   -- Retry once without branch/tag in case ref doesn't exist
                   _ui.set_status(plugin.name, "⟳ retrying...")
@@ -472,10 +483,10 @@ function M._autoinstall(plugins)
                       else
                         _ui.set_status(plugin.name, "✘ " .. (rerr or clone_err or "failed"):gsub("\n", " "))
                       end
+                      settle()
                     end)
                   end)
                 end
-                if done == #missing then _ui.finish() else dispatch() end
               end)
             end)
           end
@@ -489,6 +500,114 @@ function M._autoinstall(plugins)
       end
     end,
   })
+end
+
+-- ── Clean ──────────────────────────────────────────────────────────────────
+
+-- Remove installed dirs that are no longer in the active spec.
+-- (README documents :GarryClean; this was the missing implementation.)
+function M.clean(opts)
+  opts = opts or {}
+  local u       = require("garrys.util")
+  local active  = M._active_plugins()
+  local known   = {}
+  for _, plugin in pairs(active) do
+    known[plugin.name] = true
+  end
+
+  local installed = u.list_installed(M.config.path)
+  local orphans    = {}
+  for _, dirname in ipairs(installed) do
+    if not known[dirname] then
+      table.insert(orphans, dirname)
+    end
+  end
+
+  if #orphans == 0 then
+    u.info("nothing to clean")
+    return
+  end
+
+  table.sort(orphans)
+
+  if opts.force then
+    for _, name in ipairs(orphans) do
+      vim.fn.delete(M.config.path .. "/" .. name, "rf")
+    end
+    u.info("removed " .. #orphans .. " orphaned plugin(s):\n  " .. table.concat(orphans, "\n  "))
+    return
+  end
+
+  vim.ui.select(
+    { "yes", "no" },
+    { prompt = "remove " .. #orphans .. " orphaned plugin(s)?\n  " .. table.concat(orphans, "\n  ") },
+    function(choice)
+      if choice ~= "yes" then return end
+      for _, name in ipairs(orphans) do
+        vim.fn.delete(M.config.path .. "/" .. name, "rf")
+      end
+      u.info("removed " .. #orphans .. " orphaned plugin(s)")
+    end
+  )
+end
+
+-- ── Info ───────────────────────────────────────────────────────────────────
+
+-- Show everything garrys.nvim knows about one plugin.
+function M.info(name)
+  local u      = require("garrys.util")
+  local plugin = M._plugins[name]
+  if not plugin then
+    u.err("no such plugin: " .. name)
+    return
+  end
+
+  local git     = require("garrys.git")
+  local profile = require("garrys.profile")
+  local lines   = {
+    "name:      " .. plugin.name,
+    "source:    " .. (plugin.source or "(local)"),
+    "path:      " .. plugin.path,
+    "installed: " .. tostring(u.is_installed(plugin.path)),
+    "loaded:    " .. tostring(plugin._loaded or false),
+    "lazy:      " .. tostring(not not (plugin.lazy or plugin.event or plugin.cmd or plugin.ft or plugin.keys)),
+    "pin:       " .. tostring(plugin.pin or false),
+    "group:     " .. (plugin.group or "(none)"),
+  }
+
+  local load_ms = profile.get(plugin.name)
+  if load_ms and load_ms > 0 then
+    table.insert(lines, string.format("load time: %.1fms", load_ms))
+  end
+
+  if u.is_installed(plugin.path) and git.is_repo(plugin.path) then
+    git.get_commit(plugin.path, function(commit)
+      vim.schedule(function()
+        if commit then table.insert(lines, "commit:    " .. commit:sub(1, 12)) end
+        u.info(table.concat(lines, "\n  "))
+      end)
+    end)
+  else
+    u.info(table.concat(lines, "\n  "))
+  end
+end
+
+-- ── Pin / Unpin ────────────────────────────────────────────────────────────
+
+function M.pin(name)
+  local u      = require("garrys.util")
+  local plugin = M._plugins[name]
+  if not plugin then u.err("no such plugin: " .. name); return end
+  plugin.pin = true
+  u.info(name .. " pinned — :GarryUpdate will skip it")
+end
+
+function M.unpin(name)
+  local u      = require("garrys.util")
+  local plugin = M._plugins[name]
+  if not plugin then u.err("no such plugin: " .. name); return end
+  plugin.pin = false
+  u.info(name .. " unpinned")
 end
 
 -- ── Helpers ────────────────────────────────────────────────────────────────
