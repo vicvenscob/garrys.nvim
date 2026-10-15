@@ -52,7 +52,38 @@ function M.get_remote(path, callback)
     { "git", "-C", path, "remote", "get-url", "origin" },
     { text = true },
     function(result)
+      if result.code ~= 0 then
+        callback(nil)
+        return
+      end
       callback(result.stdout:gsub("%s+", ""))
+    end
+  )
+end
+
+-- Fetch without merging, so callers can compare local vs upstream
+-- without mutating the working tree (used by :GarryOutdated).
+function M.fetch(path, callback)
+  vim.system(
+    { "git", "-C", path, "fetch", "--quiet" },
+    { text = true },
+    function(result)
+      callback(result.code == 0, result.stderr)
+    end
+  )
+end
+
+-- Count commits the upstream branch has that HEAD doesn't.
+function M.behind_count(path, callback)
+  vim.system(
+    { "git", "-C", path, "rev-list", "--count", "HEAD..@{u}" },
+    { text = true },
+    function(result)
+      if result.code ~= 0 then
+        callback(nil)
+        return
+      end
+      callback(tonumber(result.stdout:gsub("%s+", "")) or 0)
     end
   )
 end
