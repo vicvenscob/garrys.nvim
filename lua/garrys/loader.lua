@@ -123,9 +123,15 @@ function M.register(plugin)
         -- Synthetic event (lazy.nvim compat) — fires after UI is ready
         very_lazy = true
       else
-        local ok = pcall(vim.api.nvim_create_autocmd, ev, { once = true, callback = function() end })
-        if ok then table.insert(valid, ev)
-        else u.warn("unknown event '" .. ev .. "' for " .. plugin.name) end
+        -- Validate the event name, then immediately remove the probe autocmd
+        -- so it doesn't linger forever (it used to never get cleaned up).
+        local ok, id = pcall(vim.api.nvim_create_autocmd, ev, { once = true, callback = function() end })
+        if ok then
+          pcall(vim.api.nvim_del_autocmd, id)
+          table.insert(valid, ev)
+        else
+          u.warn("unknown event '" .. ev .. "' for " .. plugin.name)
+        end
       end
     end
 
