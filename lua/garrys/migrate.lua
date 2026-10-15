@@ -192,12 +192,13 @@ function M.convert(input_path, output_path)
   out:close()
 
   vim.notify("[garrys] ✔ migrated → " .. out_path, vim.log.levels.INFO)
-  return out_path
 
-  -- Auto-validate immediately after converting
-  -- Parse deps from the converted file and cross-check them
+  -- Auto-validate immediately after converting.
+  -- (This used to sit after `return`, so it never actually ran.)
   vim.notify("[garrys] validating output...", vim.log.levels.INFO)
   M._validate_file(out_path)
+
+  return out_path
 end
 
 -- Validate a converted file by scanning for depends = { ... } blocks
@@ -219,8 +220,7 @@ function M._validate_file(path)
   local errors  = {}
   local current = nil
 
-  for line in content:gmatch("[^
-]+") do
+  for line in content:gmatch("[^\n]+") do
     -- Track current plugin by its source line
     local src = line:match('"([%w%-%.]+/[%w%-%.%_]+)"')
     if src and not line:find("depends") then
@@ -244,10 +244,8 @@ function M._validate_file(path)
     vim.notify("[garrys] ✔ validation passed — all dependencies satisfied", vim.log.levels.INFO)
   else
     vim.notify(
-      "[garrys] ✘ " .. #errors .. " missing dependenc" .. (#errors == 1 and "y" or "ies") .. ":
-"
-      .. table.concat(errors, "
-"),
+      "[garrys] ✘ " .. #errors .. " missing dependenc" .. (#errors == 1 and "y" or "ies") .. ":\n"
+      .. table.concat(errors, "\n"),
       vim.log.levels.ERROR
     )
     vim.notify("[garrys] add the missing plugins to your spec and re-run :GarryMigrate", vim.log.levels.WARN)
